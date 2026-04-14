@@ -69,8 +69,7 @@ namespace flutter_inappwebview_plugin
     auto initialWidth = initialSize->width >= 0 ? initialSize->width : bounds.right - bounds.left;
     auto initialHeight = initialSize->height >= 0 ? initialSize->height : bounds.bottom - bounds.top;
 
-    const DWORD windowStyle = WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
-    auto hwnd = CreateWindowEx(0, windowClass_.lpszClassName, L"", windowStyle, 0,
+    auto hwnd = CreateWindowEx(0, windowClass_.lpszClassName, L"", 0, 0,
       0, (int)initialWidth, (int)initialHeight,
       plugin->registrar->GetView()->GetNativeWindow(),
       nullptr,

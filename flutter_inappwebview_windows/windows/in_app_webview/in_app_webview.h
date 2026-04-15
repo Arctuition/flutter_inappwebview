@@ -126,6 +126,8 @@ namespace flutter_inappwebview_plugin
     void setCursorPos(double x, double y);
     void setPointerUpdate(int32_t pointer, InAppWebViewPointerEventKind eventKind,
       double x, double y, double size, double pressure);
+    /// WM_POINTER on the WebView host HWND: map to SendPointerInput (same path as setPointerUpdate).
+    bool tryConsumeHostTouchPointer(HWND hostHwnd, UINT message, WPARAM wParam);
     void setPointerButtonState(InAppWebViewPointerButton button, bool isDown);
     void sendScroll(double offset, bool horizontal);
     void setScrollDelta(double delta_x, double delta_y);
@@ -189,6 +191,7 @@ namespace flutter_inappwebview_plugin
     SurfaceSizeChangedCallback surfaceSizeChangedCallback_;
     CursorChangedCallback cursorChangedCallback_;
     float scaleFactor_ = 1.0;
+    HWND host_hwnd_ = nullptr;
     POINT lastCursorPos_ = { 0, 0 };
     VirtualKeyState virtualKeys_;
 

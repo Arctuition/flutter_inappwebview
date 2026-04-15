@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <Shlwapi.h>
+#include <windows.h>
 #include <wil/wrl.h>
 
 #include "../custom_platform_view/util/composition.desktop.interop.h"
@@ -48,6 +49,9 @@ namespace flutter_inappwebview_plugin
     }
 
     prepare(params);
+
+    host_hwnd_ = parentWindow;
+    SetWindowLongPtr(parentWindow, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
   }
 
   InAppWebView::InAppWebView(InAppBrowser* inAppBrowser, const FlutterInappwebviewWindowsPlugin* plugin, const InAppWebViewCreationParams& params, const HWND parentWindow, wil::com_ptr<ICoreWebView2Environment> webViewEnv,
@@ -1683,6 +1687,57 @@ namespace flutter_inappwebview_plugin
       virtualKeys_.state(), 0, point);
   }
 
+  bool InAppWebView::tryConsumeHostTouchPointer(HWND hostHwnd, UINT message, WPARAM wParam)
+  {
+    if (!webViewEnv || !webViewCompositionController) {
+      return false;
+    }
+    const double scale = static_cast<double>((scaleFactor_ > 0.0f) ? scaleFactor_ : 1.0f);
+
+    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+    POINTER_INFO pi{};
+    if (!GetPointerInfo(pointerId, &pi) || pi.pointerType != PT_TOUCH) {
+      return false;
+    }
+
+    InAppWebViewPointerEventKind eventKind;
+    switch (message) {
+    case WM_POINTERDOWN:
+      eventKind = InAppWebViewPointerEventKind::Down;
+      break;
+    case WM_POINTERUPDATE:
+      eventKind = InAppWebViewPointerEventKind::Update;
+      break;
+    case WM_POINTERUP:
+      eventKind = InAppWebViewPointerEventKind::Up;
+      break;
+    case WM_POINTERENTER:
+      eventKind = InAppWebViewPointerEventKind::Enter;
+      break;
+    case WM_POINTERLEAVE:
+      eventKind = InAppWebViewPointerEventKind::Leave;
+      break;
+    default:
+      return false;
+    }
+
+    POINT pt = pi.ptPixelLocation;
+    ScreenToClient(hostHwnd, &pt);
+
+    UINT32 pressure1024 = 0;
+    POINTER_TOUCH_INFO ti{};
+    if (GetPointerTouchInfo(pointerId, &ti)) {
+      pressure1024 = ti.pressure;
+    }
+
+    const double pressure01 = static_cast<double>(pressure1024) / 1024.0;
+    const double lx = static_cast<double>(pt.x) / scale;
+    const double ly = static_cast<double>(pt.y) / scale;
+
+    setPointerUpdate(static_cast<int32_t>(pointerId), eventKind, lx, ly, 36.0, pressure01);
+    return true;
+  }
+
   void InAppWebView::setPointerUpdate(int32_t pointer,
     InAppWebViewPointerEventKind eventKind, double x,
     double y, double size, double pressure)
@@ -1866,6 +1921,10 @@ namespace flutter_inappwebview_plugin
   InAppWebView::~InAppWebView()
   {
     debugLog("dealloc InAppWebView");
+    if (host_hwnd_) {
+      SetWindowLongPtr(host_hwnd_, GWLP_USERDATA, 0);
+      host_hwnd_ = nullptr;
+    }
     userContentController = nullptr;
     if (webView) {
       failedLog(webView->Stop());

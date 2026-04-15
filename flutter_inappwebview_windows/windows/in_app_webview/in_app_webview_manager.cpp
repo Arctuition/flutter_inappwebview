@@ -3,6 +3,7 @@
 #include <flutter/standard_method_codec.h>
 #include <shlobj.h>
 #include <windows.graphics.capture.h>
+#include <windows.h>
 
 #include "../in_app_webview/in_app_webview_settings.h"
 #include "../types/url_request.h"
@@ -13,6 +14,41 @@
 #include "../utils/vector.h"
 #include "../webview_environment/webview_environment_manager.h"
 #include "in_app_webview_manager.h"
+
+namespace
+{
+  // Routes touch (WM_POINTER with PT_TOUCH) through this child HWND's message pump so it can be
+  // intercepted before DefWindowProc. Pen/mouse pointer types still use default handling.
+  LRESULT CALLBACK InAppWebViewHostWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+  {
+    switch (message) {
+      case WM_CREATE:
+        EnableMouseInPointer(TRUE);
+        break;
+      case WM_POINTERDOWN:
+      case WM_POINTERUPDATE:
+      case WM_POINTERUP:
+      case WM_POINTERENTER:
+      case WM_POINTERLEAVE:
+      {
+        const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+        POINTER_INFO info{};
+        if (GetPointerInfo(pointerId, &info) && info.pointerType == PT_TOUCH) {
+          auto* view = reinterpret_cast<flutter_inappwebview_plugin::InAppWebView*>(
+            GetWindowLongPtr(hwnd, GWLP_USERDATA));
+          if (view) {
+            view->tryConsumeHostTouchPointer(hwnd, message, wParam);
+          }
+          return TRUE;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+    return DefWindowProc(hwnd, message, wParam, lParam);
+  }
+}
 
 namespace flutter_inappwebview_plugin
 {
@@ -52,7 +88,7 @@ namespace flutter_inappwebview_plugin
     }
 
     windowClass_.lpszClassName = CustomPlatformView::CLASS_NAME;
-    windowClass_.lpfnWndProc = &DefWindowProc;
+    windowClass_.lpfnWndProc = InAppWebViewHostWndProc;
 
     RegisterClass(&windowClass_);
   }
@@ -113,7 +149,8 @@ namespace flutter_inappwebview_plugin
     RECT bounds;
     GetClientRect(plugin->registrar->GetView()->GetNativeWindow(), &bounds);
 
-    auto hwnd = CreateWindowEx(0, windowClass_.lpszClassName, L"", 0, 0,
+    auto hwnd = CreateWindowEx(0, windowClass_.lpszClassName, L"",
+      WS_CHILD | WS_VISIBLE, 0,
       0, bounds.right - bounds.left, bounds.bottom - bounds.top,
       plugin->registrar->GetView()->GetNativeWindow(),
       nullptr,
